@@ -1,10 +1,9 @@
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-# import json
+import json
 import datetime
 import bcrypt
-
-cluster = "mongodb://127.0.0.1:27017/"
+cluster = 
 client = MongoClient(cluster)
 db = client.mydb
 personCollection = db.person
@@ -43,24 +42,33 @@ def logout():
 
 
 def createAccount():
-    name = input("Enter your name: ").strip()
+    name = input("Enter your name (optional): ").strip()
     username = input("Enter username: ").strip()
     password = input("Enter password: ").strip()
-
-    if not (name and username and password):
-        print("All mandatory fields (name, username, password) are required.")
-        return
+    email = input("Enter your email (optional): ").strip()
+    age = input("Enter your age (optional): ").strip()
+    address = input("Enter your address (optional): ").strip()
+    contact_number = input("Enter your contact number (optional): ").strip()
 
     try:
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
         data = {
-            "name": name,
             "username": username,
             "password": hashed_password.decode('utf-8'),
-            "role": "user",  
-            "posts": []
+            "role": "user"
         }
+        
+        if name:
+            data["name"] = name
+        if email:
+            data["email"] = email
+        if age:
+            data["age"] = age
+        if address:
+            data["address"] = address
+        if contact_number:
+            data["contact_number"] = contact_number
 
         inserted_id = personCollection.insert_one(data).inserted_id
         print("Account created successfully with ID:", inserted_id)
@@ -80,7 +88,18 @@ def viewUsers():
     cursor = personCollection.find()
     print("Data in 'person' collection:")
     for person in cursor:
-        print(person)
+        print(f"Username: {person['username']}, Name: {person['name']}")
+        print("Posts:")
+        for post_id in person.get('posts', []):
+            post = postCollection.find_one({"_id": post_id})
+            if post:  # Check if post exists
+                content = post.get('img', 'N/A')
+                privacy = post.get('privacy', 'N/A')
+                print(f"  Content: {content}, Privacy: {privacy}")
+            else:
+                print("  No post data available")
+
+
 
 def deleteUser():
     global current_user
@@ -129,7 +148,7 @@ def createPost(author_id):
         print("Post content is required.")
         return
 
-    if privacy == '':
+    if privacy != 'private':
         privacy = 'public'
 
     try:
@@ -171,8 +190,19 @@ def viewPosts():
             ]}
         ]
     })
+
+    print("Posts:")
     for post in user_posts:
-        print(post)
+        author_id = post["author_id"]
+        author = personCollection.find_one({"_id": author_id})
+        if author:  # Check if author exists
+            author_name = author.get("username")
+            content = post.get('img', 'N/A')
+            privacy = post.get('privacy', 'N/A')
+            print(f"Author: {author_name}, Content: {content}, Privacy: {privacy}")
+        else:
+            print("Author not found for the post")
+
 
 def viewAllPosts():
     global current_user
@@ -185,9 +215,13 @@ def viewAllPosts():
         all_posts = postCollection.find()
         print("All posts:")
         for post in all_posts:
-            print(post)
+            author_id = post["author_id"]
+            author = personCollection.find_one({"_id": author_id})
+            author_name = author.get("username")
+            print(f"Author: {author_name}, Content: {post['img']}, Privacy: {post['privacy']}")
     else:
         print("Only admin users can view all posts.")
+
 
 
 def deletePost():

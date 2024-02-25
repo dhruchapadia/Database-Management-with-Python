@@ -4,7 +4,7 @@ import random
 import string
 from openpyxl import Workbook
 
-cluster = "mongodb://127.0.0.1:27017/"
+cluster = 
 client = MongoClient(cluster)
 db = client.mydb
 personCollection = db.person
@@ -12,7 +12,10 @@ postCollection = db.post
 
 names = ["John", "Emma", "Michael", "Sophia", "James", "Olivia", "William", "Isabella", "Benjamin", "Mia"]
 passwords = ["password1", "123456", "12345678", "qwerty", "abc123"]
-
+emails = ["example1@example.com", "example2@example.com", "example3@example.com"]
+ages = [20, 25, 30, 35, 40]
+addresses = ["123 Street, City", "456 Avenue, Town", "789 Road, Village"]
+contact_numbers = ["1234567890", "9876543210", "5555555555"]
 
 def generate_unique_username(username):
     while personCollection.find_one({"username": username}):
@@ -30,7 +33,7 @@ def generate_random_posts(author_id):
 
         post_data = {
             "author_id": author_id,
-            "name": post_name,
+            "img": post_name,
             "privacy": privacy
         }
         posts.append(post_data)
@@ -52,27 +55,6 @@ admin_data = {
 personCollection.insert_one(admin_data)
 
 
-normal_usernames = ["user1", "user2", "user3"]
-
-for username in normal_usernames:
-    password = "user123"
-    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-
-    user_data = {
-        "name": random.choice(names),
-        "username": username,
-        "password": hashed_password.decode('utf-8'),
-        "role": "user",  
-        "posts": []
-    }
-
-    user = personCollection.insert_one(user_data)
-    posts = generate_random_posts(user.inserted_id)
-    for post in posts:
-        post_id = postCollection.insert_one(post).inserted_id
-        personCollection.update_one({"_id": user.inserted_id}, {"$push": {"posts": post_id}})
-
-
 wb = Workbook()
 ws = wb.active
 
@@ -84,14 +66,28 @@ for _ in range(50):
     password = random.choice(passwords)
     ws.append([username, password])
     hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+    email = random.choice(emails) if random.random() < 0.8 else None  
+    age = random.choice(ages) if random.random() < 0.6 else None  
+    address = random.choice(addresses) if random.random() < 0.7 else None  
+    contact_number = random.choice(contact_numbers) if random.random() < 0.5 else None  
 
     user_data = {
-        "name": name,
-        "username": username,
-        "password": hashed_password.decode('utf-8'),
-        "role": "user",  
-        "posts": []
+    "username": username,
+    "password": hashed_password.decode('utf-8'),
+    "role": "user",
+    "posts": []
     }
+
+    if name is not None:
+        user_data["name"] = name
+    if email is not None:
+        user_data["email"] = email
+    if age is not None:
+        user_data["age"] = age
+    if address is not None:
+        user_data["address"] = address
+    if contact_number is not None:
+        user_data["contact_number"] = contact_number
 
     user = personCollection.insert_one(user_data)
 
