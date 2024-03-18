@@ -1,13 +1,14 @@
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-import json
 import datetime
 import bcrypt
-cluster = 
+
+cluster = "mongodb://127.0.0.1:27017/"
 client = MongoClient(cluster)
 db = client.mydb
-personCollection = db.person
-postCollection = db.post
+userCollection = db.user
+machineCollection = db.machine
+packageCollection = db.package
 
 current_user = None  
 
@@ -17,7 +18,7 @@ def login():
     password = input("Enter password: ").strip()
 
     try:
-        user = personCollection.find_one({"username": username})
+        user = userCollection.find_one({"username": username})
 
         if user:
             if bcrypt.checkpw(password.encode('utf-8'), user['password'].encode('utf-8')):
@@ -42,35 +43,26 @@ def logout():
 
 
 def createAccount():
-    name = input("Enter your name (optional): ").strip()
+    name = input("Enter your name: ").strip()
     username = input("Enter username: ").strip()
     password = input("Enter password: ").strip()
-    email = input("Enter your email (optional): ").strip()
-    age = input("Enter your age (optional): ").strip()
-    address = input("Enter your address (optional): ").strip()
-    contact_number = input("Enter your contact number (optional): ").strip()
+
+    if not (name and username and password):
+        print("All mandatory fields (name, username, password) are required.")
+        return
 
     try:
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
         data = {
+            "name": name,
             "username": username,
             "password": hashed_password.decode('utf-8'),
-            "role": "user"
+            "role": "user",  
+            "machines": []
         }
-        
-        if name:
-            data["name"] = name
-        if email:
-            data["email"] = email
-        if age:
-            data["age"] = age
-        if address:
-            data["address"] = address
-        if contact_number:
-            data["contact_number"] = contact_number
 
-        inserted_id = personCollection.insert_one(data).inserted_id
+        inserted_id = userCollection.insert_one(data).inserted_id
         print("Account created successfully with ID:", inserted_id)
     except Exception as e:
         print("An error occurred:", e)
@@ -85,21 +77,10 @@ def viewUsers():
         print("Only the admin user can view user data.")
         return
 
-    cursor = personCollection.find()
-    print("Data in 'person' collection:")
-    for person in cursor:
-        print(f"Username: {person['username']}, Name: {person['name']}")
-        print("Posts:")
-        for post_id in person.get('posts', []):
-            post = postCollection.find_one({"_id": post_id})
-            if post:  # Check if post exists
-                content = post.get('img', 'N/A')
-                privacy = post.get('privacy', 'N/A')
-                print(f"  Content: {content}, Privacy: {privacy}")
-            else:
-                print("  No post data available")
-
-
+    cursor = userCollection.find()
+    print("Data in 'user' collection:")
+    for user in cursor:
+        print(user)
 
 def deleteUser():
     global current_user
@@ -124,7 +105,7 @@ def deleteUser():
         return
 
     try:
-        result_user = personCollection.delete_one({"_id": user_id})
+        result_user = userCollection.delete_one({"_id": user_id})
         if result_user.deleted_count == 1:
             print("User account has been deleted successfully.")
             if current_user["_id"] == user_id:
@@ -133,161 +114,144 @@ def deleteUser():
             print("An error occurred. User account could not be deleted.")
             return
         
-        result_posts = postCollection.delete_many({"author_id": user_id})
-        print(f"{result_posts.deleted_count} posts by the user have been deleted.")
+        result_machines = machineCollection.delete_many({"user_id": user_id})
+        print(f"{result_machines.deleted_count} machines associated with the user have been deleted.")
     except Exception as e:
         print("An error occurred:", e)
 
-
-
-def createPost(author_id):
-    img = input("Enter your post content (text): ").strip()
-    privacy = input("Enter post privacy (private or public, press Enter for public): ").strip().lower()
-
-    if not img:
-        print("Post content is required.")
-        return
-
-    if privacy != 'private':
-        privacy = 'public'
-
-    try:
-        post_data = {
-            "author_id": author_id,
-            "img": img,
-            "privacy": privacy,
-            "timestamp": datetime.datetime.now()
-        }
-
-        inserted_post = postCollection.insert_one(post_data)
-        post_id = inserted_post.inserted_id
-        print("Post created successfully with ID:", post_id)
-
-        personCollection.update_one({"_id": author_id}, {"$push": {"posts": post_id}})
-    except Exception as e:
-        print("An error occurred:", e)
-
-def viewPosts():
+def createMachine():
     global current_user
 
     if not current_user:
-        print("You must be logged in to view posts.")
+        print("You must be logged in to create a machine.")
+        return
+    machine_id = input("Enter 8-digit machine ID: ").strip()
+
+    if not machine_id or not machine_id.isdigit() or len(machine_id) != 8:
+        print("Machine ID must be an 8-digit number.")
+        return
+
+    try:
+        machine_data = {
+            "user_id": current_user["_id"],
+            "machine_id": machine_id,
+            "packages": []
+        }
+
+        inserted_machine = machineCollection.insert_one(machine_data)
+        machine_id = inserted_machine.inserted_id
+        print("Machine created successfully with ID:", machine_id)
+
+        userCollection.update_one({"_id": current_user["_id"]}, {"$push": {"machines": machine_id}})
+    except Exception as e:
+        print("An error occurred:", e)
+
+def viewMachines():
+    global current_user
+
+    if not current_user:
+        print("You must be logged in to view machines.")
         return
 
     current_user_id = current_user["_id"]
 
-    user_posts = postCollection.find({
-        "$or": [
-            {"author_id": current_user_id, "privacy": {"$ne": "hidden"}},
-            {"$and": [
-                {"author_id": {"$ne": current_user_id}},
-                {"$or": [
-                    {"privacy": "public"},
-                    {"$and": [
-                        {"privacy": "private", "author_id": current_user_id}
-                    ]}
-                ]}
-            ]}
-        ]
-    })
-
-    print("Posts:")
-    for post in user_posts:
-        author_id = post["author_id"]
-        author = personCollection.find_one({"_id": author_id})
-        if author:  # Check if author exists
-            author_name = author.get("username")
-            content = post.get('img', 'N/A')
-            privacy = post.get('privacy', 'N/A')
-            print(f"Author: {author_name}, Content: {content}, Privacy: {privacy}")
-        else:
-            print("Author not found for the post")
+    user_machines = machineCollection.find({"user_id": current_user_id})
+    for machine in user_machines:
+        print("Machine details:")
+        print("Machine ID:", machine["machine_id"])
+        print("Packages:")
+        for package_id in machine["packages"]:
+            package = packageCollection.find_one({"_id": package_id})
+            if package:
+                print("Package ID:", package["packageid"])
+                print("Dimension:", package["dimension"])
+                print("Volume:", package["volume"])
+                print("Timestamp:", package["timestamp"])
+                print("Thumbnail:", package["thumbnail"])
+                print("Barcode:", package["barcode"])
+                print()
 
 
-def viewAllPosts():
+def deleteMachine():
     global current_user
 
     if not current_user:
-        print("You must be logged in to view posts.")
-        return
-
-    if current_user.get("role") == "admin":
-        all_posts = postCollection.find()
-        print("All posts:")
-        for post in all_posts:
-            author_id = post["author_id"]
-            author = personCollection.find_one({"_id": author_id})
-            author_name = author.get("username")
-            print(f"Author: {author_name}, Content: {post['img']}, Privacy: {post['privacy']}")
-    else:
-        print("Only admin users can view all posts.")
-
-
-
-def deletePost():
-    global current_user
-
-    if not current_user:
-        print("You must be logged in to delete a post.")
+        print("You must be logged in to delete a machine.")
         return
     
-    post_id_str = input("Enter the ObjectId of the post you want to delete: ").strip()
+    machine_id_str = input("Enter the ObjectId of the machine you want to delete: ").strip()
     try:
-        post_id = ObjectId(post_id_str)
+        machine_id = ObjectId(machine_id_str)
     except ValueError:
         print("Invalid ObjectId.")
         return
     try:
-        post = postCollection.find_one({"_id": post_id})
+        machine = machineCollection.find_one({"_id": machine_id})
 
-        if not post:
-            print("Post not found.")
+        if not machine:
+            print("Machine not found.")
             return
 
-        if post["author_id"] != current_user["_id"]:
-            print("You are not authorized to delete this post.")
+        if machine["user_id"] != current_user["_id"]:
+            print("You are not authorized to delete this machine.")
             return
 
-        confirmation = input("Are you sure you want to delete this post? (yes/no): ").strip().lower()
+        confirmation = input("Are you sure you want to delete this machine? (yes/no): ").strip().lower()
         if confirmation != "yes":
-            print("Post deletion cancelled.")
+            print("Machine deletion cancelled.")
             return
 
-        result = postCollection.update_one({"_id": post_id}, {"$set": {"privacy": "hidden"}})
-        if result.modified_count == 1:
-            print("Post deleted successfully.")
+        result = machineCollection.delete_one({"_id": machine_id})
+        if result.deleted_count == 1:
+            print("Machine deleted successfully.")
         else:
-            print("An error occurred. Post could not be deleted.")
+            print("An error occurred. Machine could not be deleted.")
 
     except Exception as e:
         print("An error occurred:", e)
 
-def adminDeletePost():
+def createPackage():
     global current_user
 
     if not current_user:
-        print("You must be logged in to delete a post.")
+        print("You must be logged in to create a package.")
         return
 
-    post_id_str = input("Enter the ObjectId of the post you want to delete: ").strip()
-    try:
-        post_id = ObjectId(post_id_str)
-    except ValueError:
-        print("Invalid ObjectId.")
-        return
-    if current_user.get("role") != "admin":
-        print("Only admin users can delete posts.")
+    packageid = input("Enter package ID: ").strip()
+    dimension = input("Enter package dimension: ").strip()
+    volume = input("Enter package volume: ").strip()
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    thumbnail = input("Enter package thumbnail URL: ").strip()
+    barcode = input("Enter package barcode: ").strip()
+    machine_id = input("Enter machine id to associate this package with: ").strip()
+
+    if not (packageid and dimension and volume and thumbnail and barcode and machine_id):
+        print("All fields (package ID, dimension, volume, thumbnail URL, barcode, machine name) are required.")
         return
 
     try:
-        result = postCollection.delete_one({"_id": post_id})
-        if result.deleted_count == 1:
-            print("Post deleted successfully.")
-        else:
-            print("Post not found or could not be deleted.")
+        machine = machineCollection.find_one({"machine_id": machine_id})
+
+        if not machine:
+            print("Machine not found.")
+            return
+
+        package_data = {
+            "packageid": packageid,
+            "dimension": dimension,
+            "volume": volume,
+            "timestamp": timestamp,
+            "thumbnail": thumbnail,
+            "barcode": barcode
+        }
+
+        inserted_package = packageCollection.insert_one(package_data)
+        package_id = inserted_package.inserted_id
+        print("Package created successfully with ID:", package_id)
+
+        machineCollection.update_one({"_id": machine["_id"]}, {"$push": {"packages": package_id}})
     except Exception as e:
         print("An error occurred:", e)
-
 
 def exit_program():
     logout()
@@ -301,19 +265,18 @@ def main():
                 options = {
                     "view": viewUsers,
                     "delete": deleteUser,
-                    "feed": viewAllPosts,
-                    "post": lambda: createPost(current_user["_id"]),
+                    "machines": viewMachines,
+                    "create": lambda: createMachine(current_user["_id"]),
                     "logout": logout,
-                    "delete": adminDeletePost,
                     "exit": exit_program
                 }
             else:
                 options = {
-                    "delete": deleteUser,
-                    "feed": viewPosts,
-                    "post": lambda: createPost(current_user["_id"]),
+                    "machines": viewMachines,
+                    "create_machine": createMachine,
+                    "delete_machine": deleteMachine,
+                    "create_package": createPackage,
                     "logout": logout,
-                    "delete": deletePost,
                     "exit": exit_program
                 }
         else:
@@ -325,9 +288,9 @@ def main():
 
         if current_user:
             if current_user.get("role") == "admin":
-                print("Options: view, feed, delete, post, logout, Exit")
+                print("Options: view , machines, create_machine, delete_machine, create_package, logout, Exit")
             else:
-                print("Options: feed, delete, post, logout, Exit")
+                print("Options: machines, create_machine, delete_machine, create_package, logout, Exit")
         else:
             print("Options: create, login, Exit")
 
